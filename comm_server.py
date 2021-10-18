@@ -1,10 +1,15 @@
 from collections import OrderedDict, Counter, deque
 from random import randint, seed, choice
 from queue import Queue
+import json
+import struct as 結構
+
 
 import PySimpleGUI as sg
 from 語音模組 import *
 from 聲音模組 import *
+from 序列模組 import *
+
 
 class Data:pass
 
@@ -19,7 +24,7 @@ def init():
     Data.window_callnum = None
     Data.default_names = '陳怡君\n林雅婷\n張承恩\n王采潔\n陳志明\n楊淑惠'
     
-    Data.json_filename = 'data.json'
+    Data.filename = 'data'
     
     Data.apikey_lowbound = 10000
     Data.apikey_upbound = 32767
@@ -42,6 +47,9 @@ def init():
     
     Data.tts_start = False
     
+    Data.序列連線 = None
+
+    load_data()
 
 def make_window_main():
     
@@ -58,7 +66,11 @@ def make_window_main():
         ]
     
     
-    tab_callnum_layout = [[sg.Button('開始microbit叫號',key='-START_CALLNUM-')]]
+    tab_callnum_layout = [
+            [sg.Text('')],
+            [sg.Text('')],
+            [sg.Button('開始取號叫號模擬',key='-START_CALLNUM-')]
+        ]
     
     tab_group_layout = [[sg.Tab('設定', tab_setup_layout),
                      sg.Tab('無線叫號', tab_callnum_layout),                     
@@ -81,6 +93,7 @@ def make_window_callnum():
                             ),
                     sg.Button('取號'),
                     sg.Button('叫號'),
+                    sg.Button('read_microbit'),
                     ]]
     top_column = sg.Column(
         top_layout,
@@ -185,6 +198,9 @@ def init_callnum():
     update_client_ui()
     update_msg_called_ui()
     
+    # microbit connect
+    Data.序列連線 = 連接microbit(例外錯誤=False, 讀取等待=0)
+    
 def update_client_ui():
     result = ''
     for num, name in Data.client_queue:
@@ -231,6 +247,7 @@ def make_apikey(values):
                 if not key in Data.apikey_dict:
                     found = True
             Data.apikey_dict[key] = name
+        save_data()
         #print(Data.apikey_dict)
         # show in multiline
         show_apikey()
@@ -241,6 +258,23 @@ def show_apikey():
         result += f'{name} (key:{key})\n'
     Data.window_main['-APIKEY_RESULT-'].update(result)
     Data.window_main['-INPUT_NAMES-'].update('')
+
+def save_data():
+    with open(Data.filename, 'w', encoding='utf-8') as f:
+                json.dump(Data.apikey_dict, f)
+    print('資料存檔')
+
+def load_data():
+    try:
+        with open(Data.filename, 'r', encoding='utf-8') as f:
+                Data.apikey_dict = json.load(f)
+        print('資料載入')
+        show_apikey()
+    except FileNotFoundError:
+        print('無資料檔')
+        return
+            
+            
 
 def add_client(name=None):
     if len(Data.client_queue) >= Data.client_max:
@@ -338,6 +372,11 @@ def event_loop():
             key = choice(list(Data.apikey_dict.keys()))
             num = randint(1,20)
             Data.msg_queqe.append((key, Data.callnum_code, num))
+        if window == Data.window_callnum and event == 'read_microbit':
+            位元組資料 = Data.序列連線.接收(位元組=6)
+            if 位元組資料:
+                清單 = 結構.unpack('hhh',位元組資料)
+                print(清單)
 
             
     Data.window_main.close()
