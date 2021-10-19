@@ -35,7 +35,7 @@ def init():
     
     #Data.callnum_type = 'Server'  # 'ServerAndClient'
     
-    Data.client_max = 30
+    Data.client_max = 15
     Data.client_queue = deque(maxlen=Data.client_max)
     
     Data.msg_max = 30
@@ -93,7 +93,7 @@ def make_window_callnum():
                             ),
                     sg.Button('取號'),
                     sg.Button('叫號'),
-                    sg.Button('read_microbit'),
+                    sg.Button('清除等待'),
                     ]]
     top_column = sg.Column(
         top_layout,
@@ -176,8 +176,8 @@ def init_callnum():
     音源e = 正弦波(659)
     音源c = 正弦波(523)
     
-    聲音e = 音源e.轉成聲音(持續時間=300, 音量=-15.0)
-    聲音c = 音源c.轉成聲音(持續時間=500, 音量=-15.0)
+    聲音e = 音源e.轉成聲音(持續時間=150, 音量=-15.0)
+    聲音c = 音源c.轉成聲音(持續時間=150, 音量=-15.0)
     聲音c = 聲音c.淡出(50)
 
     Data.叫號聲 = 聲音e.串接(聲音c, 交叉淡化=50)
@@ -186,9 +186,9 @@ def init_callnum():
     音源b = 正弦波(493)
     音源d = 正弦波(587)
 
-    聲音g = 音源g.轉成聲音(持續時間=300, 音量=-10.0)
-    聲音b = 音源b.轉成聲音(持續時間=300, 音量=-10.0)
-    聲音d = 音源d.轉成聲音(持續時間=500, 音量=-10.0)
+    聲音g = 音源g.轉成聲音(持續時間=150, 音量=-10.0)
+    聲音b = 音源b.轉成聲音(持續時間=150, 音量=-10.0)
+    聲音d = 音源d.轉成聲音(持續時間=300, 音量=-10.0)
     聲音d = 聲音d.淡出(50)
     
     temp = 聲音g.串接(聲音b, 交叉淡化=50)
@@ -246,7 +246,8 @@ def make_apikey(values):
                 key = randint(Data.apikey_lowbound, Data.apikey_upbound)
                 if not key in Data.apikey_dict:
                     found = True
-            Data.apikey_dict[key] = name
+            Data.apikey_dict[str(key)] = name
+            
         save_data()
         #print(Data.apikey_dict)
         # show in multiline
@@ -286,6 +287,10 @@ def add_client(name=None):
     播放聲音(Data.叫號聲)
 
 def handle_msg_and_client():
+    #read serial
+    read_serial_and_parse()
+    
+    
     # update client queue
     update_client_ui()
     
@@ -326,12 +331,45 @@ def handle_msg_and_client():
         elif code == Data.client_code :
             name = Data.apikey_dict[apikey]
             add_client(name)
-        
 
+def read_serial_and_parse():
+    位元組資料 = Data.序列連線.接收(位元組=6)
+    if 位元組資料:
+        apikey, code, value = 結構.unpack('hhh',位元組資料)
+        apikey = str(apikey)
+        #print(清單)
+        # check msg
+        if not apikey  in Data.apikey_dict.keys():
+            print('apikey錯誤: ', apikey)
+            return
+        
+        # only one apikey in msg_queue (prevent busy)
+        name = Data.apikey_dict[apikey]
+        for k, _, _ in Data.msg_queqe:
+            
+            if k == apikey :
+                
+                print(f'1次只能1個訊息(apikey:{apikey}, {name})')
+                return
+        
+        
+        if code not in (Data.client_code, Data.callnum_code):
+            print('指令碼錯誤: ', code, f'(apikey:{apikey}, {name} )')
+            return
+            
+        if code == Data.callnum_code and not 1 <= value <= Data.counter_max :
+            print('叫號櫃台({}) 超過範圍1~{}  (apikey:{}, {})'.format(value,Data.counter_max, apikey, name))
+            return
+        
+         
+        
+        # put in queue
+        Data.msg_queqe.append((apikey, code, value))
+        print('serial msg ok')
 
 def event_loop():
     while True:
-        window, event, values = sg.read_all_windows(timeout=200)
+        window, event, values = sg.read_all_windows(timeout=100)
               
         # window_main event---------------------------------------
         
@@ -363,6 +401,7 @@ def event_loop():
         if window == Data.window_callnum and (event == sg.WIN_CLOSED) and sg.popup_yes_no('要離開叫號功能嗎?') == 'Yes':
             Data.window_callnum.close()
             Data.window_callnum = None
+            Data.序列連線.關閉()
             Data.window_main.un_hide()
             
         if window == Data.window_callnum and event == '取號':
@@ -370,13 +409,11 @@ def event_loop():
             Data.msg_queqe.append((key, Data.client_code, 0))
         if window == Data.window_callnum and event == '叫號':
             key = choice(list(Data.apikey_dict.keys()))
+            
             num = randint(1,20)
             Data.msg_queqe.append((key, Data.callnum_code, num))
-        if window == Data.window_callnum and event == 'read_microbit':
-            位元組資料 = Data.序列連線.接收(位元組=6)
-            if 位元組資料:
-                清單 = 結構.unpack('hhh',位元組資料)
-                print(清單)
+        if window == Data.window_callnum and event == '清除等待':
+            Data.client_queue.clear()
 
             
     Data.window_main.close()

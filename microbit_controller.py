@@ -9,9 +9,17 @@ import ustruct as 結構
 
 while True :
     if A鈕.is_pressed() :
-        位元組資料 = 結構.pack('hhh',14402, 32, 0)
+        位元組資料 = 結構.pack('hhh',12067, 32, 0)
+        無線廣播.send_bytes(位元組資料)
+        位元組資料 = 結構.pack('hhh',12067, 32, 0)
+        無線廣播.send_bytes(位元組資料)
+        位元組資料 = 結構.pack('hhh',12067, 32, 0)
         無線廣播.send_bytes(位元組資料)
     if B鈕.is_pressed() :
-        位元組資料 = 結構.pack('hhh',14402, 64, 7)
-        無線廣播.send_bytes(位元組資料)    
-    時間.sleep_ms(500)
+        位元組資料 = 結構.pack('hhh',12067, 64, 15)
+        無線廣播.send_bytes(位元組資料)
+        位元組資料 = 結構.pack('hhh',12067, 64, 15)
+        無線廣播.send_bytes(位元組資料)
+        位元組資料 = 結構.pack('hhh',12067, 64, 15)
+        無線廣播.send_bytes(位元組資料)
+    時間.sleep_ms(100)
