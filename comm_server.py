@@ -51,6 +51,7 @@ def init():
         }
     
     Data.lock_answer_content = '\n\n答\n\n案\n\n鎖\n\n定\n\n\n'
+    Data.fill_answer_content = '\n\n\n請\n\n答\n\n題\n\n\n\n\n'
     Data.check_answer_content = '   ======== 答 對 的 人 是 ========'
     
     Data.client_max = 15
@@ -168,7 +169,7 @@ def make_window_feedback():
                             font=Data.font,
                             text_color='yellow',
                             ),
-                    sg.Button('清除全部', key='-CLEAR_ALL-'),
+                    sg.Button('重新作答', key='-CLEAR_ALL-'),
                     sg.Button('鎖定答案', key='-LOCK_ANSWER-'),
                     sg.Text('   正確答案:'),
                     sg.Combo(('1','2','3','4','是','否'),key='-ANSWER_COMBO-',default_value='1', readonly=True),
@@ -414,7 +415,7 @@ def init_feedback():
     Data.window_feedback['-VIEW_SCORE-'].update(disabled=True)
     Data.window_feedback['-CLEAR_ALL-'].update(disabled=True)
 
-    Data.window_feedback['-LOCK_ANSWER_TXT-'].update('',background_color=Data.theme_background_color)
+    Data.window_feedback['-LOCK_ANSWER_TXT-'].update(Data.fill_answer_content,background_color=Data.highlight_color2)
     Data.window_feedback['-CHECK_ANSWER_TXT-'].update('',background_color=Data.theme_background_color)
 
 def lock_answer():
@@ -439,20 +440,34 @@ def clear_all():
     Data.window_feedback['-CHECK_ANSWER-'].update(disabled=True)
     Data.window_feedback['-VIEW_SCORE-'].update(disabled=True)
     
-    Data.window_feedback['-LOCK_ANSWER_TXT-'].update('',background_color=Data.theme_background_color)
+    Data.window_feedback['-LOCK_ANSWER_TXT-'].update(Data.fill_answer_content,background_color=Data.highlight_color2)
     Data.window_feedback['-CHECK_ANSWER_TXT-'].update('',background_color=Data.theme_background_color)
     
-    Data.answer_dict = OrderedDict()
+    Data.user_answer_dict = OrderedDict()
     # answer ui clear
     for k in Data.name_dict.keys():
         Data.window_feedback[k].update('', background_color=Data.theme_background_color)
 
 def check_answer(values):
     #print(values['-ANSWER_COMBO-'])
-    Data.window_feedback['-CHECK_ANSWER-'].update(disabled=False)
+    Data.window_feedback['-CHECK_ANSWER-'].update(disabled=True)
     Data.window_feedback['-CHECK_ANSWER_TXT-'].update(Data.check_answer_content,background_color=Data.highlight_color2)
 
+    correct_answer = values['-ANSWER_COMBO-']
+    
+    
+    for apikey, answer_char  in Data.user_answer_dict.items() :
+        if answer_char == correct_answer:
+            Data.score_counter[apikey] += 1
+            Data.window_feedback[apikey].update(background_color=Data.highlight_color2)
+    
+
     播放聲音(Data.正解聲)
+
+def view_score():
+    print(Data.score_counter)
+
+
 
 def handle_msg_and_answer():
     msg_num = len(Data.msg_deque)
@@ -670,6 +685,9 @@ def event_loop():
               
         if window == Data.window_feedback and event == '-CHECK_ANSWER-':      
             check_answer(values)
+            
+        if window == Data.window_feedback and event == '-VIEW_SCORE-':      
+            view_score()
               
         if window == Data.window_feedback and event == 'TEST':
             for i in range(3):
