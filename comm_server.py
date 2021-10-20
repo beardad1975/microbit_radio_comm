@@ -1,6 +1,6 @@
 from collections import OrderedDict, Counter, deque
 from random import randint, seed, choice
-from queue import Queue
+
 import json
 
 import PySimpleGUI as sg
@@ -20,7 +20,8 @@ def init():
     Data.font = '標楷體 32 normal'
     Data.font_small = '標楷體 20 normal'
     Data.title_color = '#484d54'
-    Data.theme_background_color = sg.theme_background_color()
+    Data.theme_background_color = sg.theme_element_background_color()
+    #Data.theme_text_color = sg.theme_element_text_color()
     Data.highlight_color = 'red'
     Data.highlight_color2 = 'green'
     Data.readonly_color = 'PaleGreen1'
@@ -37,17 +38,80 @@ def init():
     Data.client_code = 32  # 取號代碼
     Data.callnum_code = 64 # 叫號代碼
     Data.counter_max = 30 # 櫃台最大值
-    Data.apikey_dict = OrderedDict()
+    Data.name_dict = OrderedDict()
+    
+    Data.answer_to_char_dict ={
+            0 : '',
+            1 : '1',
+            2 : '2',
+            3 : '3',
+            4 : '4',
+            5 : '是',
+            6 : '否',
+        }
+    
+    Data.lock_answer_content = '\n\n答\n\n案\n\n鎖\n\n定\n\n\n'
+    Data.check_answer_content = '   ======== 答 對 的 人 是 ========'
     
     Data.client_max = 15
     Data.msg_max = 30
     Data.msg_show_num = 8
+    
+    Data.msg_deque = deque(maxlen=Data.msg_max)
+    Data.client_deque = deque(maxlen=Data.client_max)
+    
+    
+    
     Data.tts_start = False
     Data.序列連線 = None
-
+    
+    sound_init()
     load_data()
 
-# ------圖形使用介面(含主程式、即時回饋、取號叫號)-----------
+def sound_init():
+    # prepare call sound
+    設定語音音量(100)
+    設定語音速度(1)
+
+    音源e_up = 正弦波(659)
+    音源c_up = 正弦波(523)
+    
+    聲音e_up = 音源e_up.轉成聲音(持續時間=150, 音量=-15.0)
+    聲音c_up = 音源c_up.轉成聲音(持續時間=150, 音量=-15.0)
+    聲音c_up = 聲音c_up.淡出(50)
+
+    Data.叫號聲 = 聲音e_up.串接(聲音c_up, 交叉淡化=50)
+
+    
+    
+    音源g = 正弦波(392)
+    音源b = 正弦波(493)
+    音源d_up = 正弦波(587)
+
+    聲音g = 音源g.轉成聲音(持續時間=150, 音量=-10.0)
+    聲音b = 音源b.轉成聲音(持續時間=150, 音量=-10.0)
+    聲音d_up = 音源d_up.轉成聲音(持續時間=300, 音量=-10.0)
+    聲音d_up = 聲音d_up.淡出(50)
+    
+    temp = 聲音g.串接(聲音b, 交叉淡化=50)
+    Data.叫號聲2 = temp.串接(聲音d_up, 交叉淡化=50)
+    
+    
+    音源a = 正弦波(440)
+    音源f = 正弦波(348)
+    
+    
+    聲音a = 音源a.轉成聲音(持續時間=200, 音量=-10.0)
+    聲音f = 音源f.轉成聲音(持續時間=600, 音量=-10.0)
+    
+    temp = 聲音a.淡出(50)
+    temp = temp + temp + temp + 聲音f
+    Data.正解聲 = temp.淡出(100)
+    
+    
+    
+
+# ------圖形使用介面(含主程式、即時回饋、取號叫號 GUI)-----------
 
 def make_window_main():
     
@@ -104,9 +168,13 @@ def make_window_feedback():
                             font=Data.font,
                             text_color='yellow',
                             ),
-                    sg.Button('清除'),
-                    sg.Button('鎖定'),
-                    sg.Button('對答案'),
+                    sg.Button('清除全部', key='-CLEAR_ALL-'),
+                    sg.Button('鎖定答案', key='-LOCK_ANSWER-'),
+                    sg.Text('   正確答案:'),
+                    sg.Combo(('1','2','3','4','是','否'),key='-ANSWER_COMBO-',default_value='1', readonly=True),
+                    sg.Button('對答案', key='-CHECK_ANSWER-'),
+                    sg.Button('檢視成績', key='-VIEW_SCORE-'),
+                    sg.Button('TEST'),
                     ]]
     
     top_column = sg.Column(
@@ -117,8 +185,8 @@ def make_window_feedback():
     
     # 右區塊
     element_list = []
-    for apikey, name in Data.apikey_dict.items():
-        element = sg.Text(name+' X', key=apikey,font=Data.font, size=(10, 1))
+    for apikey, name in Data.name_dict.items():
+        element = sg.Text('', key=apikey,font=Data.font, size=(10, 1))
         element_list.append(element)
     
     # fill up to 4-multiple and count rows numbers
@@ -133,7 +201,7 @@ def make_window_feedback():
         row_num = quotient + 1
         
     right_layout = [
-            [sg.Text('誰 答 對 了',font=Data.font,
+            [sg.Text(Data.check_answer_content,font=Data.font, key='-CHECK_ANSWER_TXT-',
                      size=(40,1),
                      justification='left',
                      background_color=Data.highlight_color2,
@@ -153,14 +221,14 @@ def make_window_feedback():
     
     # 左區塊
     left_col = sg.Column(
-        [[sg.Text('\n\n答\n\n案\n\n鎖\n\n定\n\n\n',font=Data.font,background_color=Data.highlight_color)],
+        [[sg.Text(Data.lock_answer_content,key='-LOCK_ANSWER_TXT-',font=Data.font,background_color=Data.highlight_color)],
          
          ],
         size=(100, 640),
         )
     
     # 底部區塊
-    feedback_format = "h:apikey h:0~6 (0無 1 2 3 4 5圈 6叉)"
+    feedback_format = "[h]apikey [h]0~6(0無 1 2 3 4 5是 6否)"
     
     bottom_layout = [
               [
@@ -238,18 +306,18 @@ def make_window_callnum():
     # 左區塊
     left_col = sg.Column(
         [[sg.Text('等待0人',key='-WAIT_TITLE-',font=Data.font,background_color=Data.title_color)],
-         [sg.Multiline('',key='-CLIENT_QUEUE-',font=Data.font_small, size=(18, 15), disabled=True,background_color=Data.readonly_color)],
+         [sg.Multiline('',key='-CLIENT_DEQUE-',font=Data.font_small, size=(18, 15), disabled=True,background_color=Data.readonly_color)],
          ],
         size=(350, 600),
         )
 
     
     # 底部區塊
-    client_format = f"h:key h:{Data.client_code} h:0"
-    callnum_format = f'h:key h:{Data.callnum_code} h:1~{Data.counter_max}'
+    client_format = f"[h]key [h]{Data.client_code} [h]0"
+    callnum_format = f'[h]key [h]{Data.callnum_code} [h]1~{Data.counter_max}'
     bottom_layout = [
-            [ sg.Text('取號格式',font=Data.font_small,background_color=Data.title_color) , sg.Text(client_format,font=Data.font),
-              sg.Text('叫號格式',font=Data.font_small,background_color=Data.title_color) ,sg.Text(callnum_format,font=Data.font) ],
+            [ sg.Text('取號',font=Data.font_small,background_color=Data.title_color) , sg.Text(client_format,font=Data.font),
+              sg.Text('叫號',font=Data.font_small,background_color=Data.title_color) ,sg.Text(callnum_format,font=Data.font) ],
         
         ]
     bottom_column = sg.Column(
@@ -281,7 +349,7 @@ def make_apikey(values):
         sg.popup_error('需先輸入名單才能產生apikey')
     else:
         # generate apikey
-        Data.apikey_dict = OrderedDict()
+        Data.name_dict = OrderedDict()
         over_32 = False
         # 固定隨機種子
         seed(1)
@@ -297,13 +365,13 @@ def make_apikey(values):
             found = False
             while not found:
                 key = randint(Data.apikey_lowbound, Data.apikey_upbound)
-                if not key in Data.apikey_dict:
+                if not key in Data.name_dict:
                     found = True
             # key型別為文字
-            Data.apikey_dict[str(key)] = name
+            Data.name_dict[str(key)] = name
             
         save_data()
-        #print(Data.apikey_dict)
+        #print(Data.name_dict)
         # show in multiline
         
         show_apikey()
@@ -313,20 +381,20 @@ def make_apikey(values):
         
 def show_apikey():
     result = '序    名稱    apikey\n ===============\n'
-    for i, (key, name) in enumerate(Data.apikey_dict.items()):
+    for i, (key, name) in enumerate(Data.name_dict.items()):
         result += f'{i+1})  {name}  (apikey:{key})\n'
     Data.window_main['-APIKEY_RESULT-'].update(result)
     Data.window_main['-INPUT_NAMES-'].update('')
 
 def save_data():
     with open(Data.filename, 'w', encoding='utf-8') as f:
-                json.dump(Data.apikey_dict, f)
+                json.dump(Data.name_dict, f)
     print('資料存檔')
 
 def load_data():
     try:
         with open(Data.filename, 'r', encoding='utf-8') as f:
-                Data.apikey_dict = json.load(f)
+                Data.name_dict = json.load(f)
         print('資料載入')
         show_apikey()
     except FileNotFoundError:
@@ -336,40 +404,87 @@ def load_data():
 # ---------------即時回饋 相關函式---------------
 
 def init_feedback():
-    pass
+    Data.answer_locking = False
+    Data.msg_deque.clear()
+    Data.user_answer_dict = OrderedDict()
+    Data.score_counter = Counter()
+        
+    Data.window_feedback['-ANSWER_COMBO-'].update(disabled=True)
+    Data.window_feedback['-CHECK_ANSWER-'].update(disabled=True)
+    Data.window_feedback['-VIEW_SCORE-'].update(disabled=True)
+    Data.window_feedback['-CLEAR_ALL-'].update(disabled=True)
+
+    Data.window_feedback['-LOCK_ANSWER_TXT-'].update('',background_color=Data.theme_background_color)
+    Data.window_feedback['-CHECK_ANSWER_TXT-'].update('',background_color=Data.theme_background_color)
+
+def lock_answer():
+    Data.answer_locking = True
+    Data.window_feedback['-LOCK_ANSWER-'].update(disabled=True)
+    
+    Data.window_feedback['-CLEAR_ALL-'].update(disabled=False)
+    Data.window_feedback['-ANSWER_COMBO-'].update(disabled=False)
+    Data.window_feedback['-CHECK_ANSWER-'].update(disabled=False)
+    Data.window_feedback['-VIEW_SCORE-'].update(disabled=False)
+    
+    Data.window_feedback['-LOCK_ANSWER_TXT-'].update(Data.lock_answer_content,background_color=Data.highlight_color)
+
+    播放聲音(Data.叫號聲2)
+
+def clear_all():
+    Data.answer_locking = False
+    Data.window_feedback['-LOCK_ANSWER-'].update(disabled=False)
+    
+    Data.window_feedback['-CLEAR_ALL-'].update(disabled=True)
+    Data.window_feedback['-ANSWER_COMBO-'].update(disabled=True)
+    Data.window_feedback['-CHECK_ANSWER-'].update(disabled=True)
+    Data.window_feedback['-VIEW_SCORE-'].update(disabled=True)
+    
+    Data.window_feedback['-LOCK_ANSWER_TXT-'].update('',background_color=Data.theme_background_color)
+    Data.window_feedback['-CHECK_ANSWER_TXT-'].update('',background_color=Data.theme_background_color)
+    
+    Data.answer_dict = OrderedDict()
+    # answer ui clear
+    for k in Data.name_dict.keys():
+        Data.window_feedback[k].update('', background_color=Data.theme_background_color)
+
+def check_answer(values):
+    #print(values['-ANSWER_COMBO-'])
+    Data.window_feedback['-CHECK_ANSWER-'].update(disabled=False)
+    Data.window_feedback['-CHECK_ANSWER_TXT-'].update(Data.check_answer_content,background_color=Data.highlight_color2)
+
+    播放聲音(Data.正解聲)
+
+def handle_msg_and_answer():
+    msg_num = len(Data.msg_deque)
+    if msg_num == 0:
+        return
+    else:
+        if Data.answer_locking:
+            Data.msg_deque.clear() 
+        else: # not locking
+            for n in range(msg_num):
+                apikey, value = Data.msg_deque.popleft()
+                
+                answer_char = Data.answer_to_char_dict[value]
+                name = Data.name_dict[apikey]
+                
+                Data.user_answer_dict[apikey] = answer_char
+                if answer_char :
+                    Data.window_feedback[apikey].update(f'{name}:{answer_char}')
+                else:
+                    Data.window_feedback[apikey].update(f'{name}')
+            播放聲音(Data.叫號聲)
+        
 
 
 # ---------------取號叫號 相關函式-------------------
 
 def init_callnum():    
-    # prepare call sound
-    設定語音音量(100)
-    設定語音速度(1)
-
-    音源e = 正弦波(659)
-    音源c = 正弦波(523)
     
-    聲音e = 音源e.轉成聲音(持續時間=150, 音量=-15.0)
-    聲音c = 音源c.轉成聲音(持續時間=150, 音量=-15.0)
-    聲音c = 聲音c.淡出(50)
-
-    Data.叫號聲 = 聲音e.串接(聲音c, 交叉淡化=50)
-
-    音源g = 正弦波(392)
-    音源b = 正弦波(493)
-    音源d = 正弦波(587)
-
-    聲音g = 音源g.轉成聲音(持續時間=150, 音量=-10.0)
-    聲音b = 音源b.轉成聲音(持續時間=150, 音量=-10.0)
-    聲音d = 音源d.轉成聲音(持續時間=300, 音量=-10.0)
-    聲音d = 聲音d.淡出(50)
-    
-    temp = 聲音g.串接(聲音b, 交叉淡化=50)
-    Data.叫號聲2 = temp.串接(聲音d, 交叉淡化=50)
 
     # init deque counter and list
-    Data.client_queue = deque(maxlen=Data.client_max)
-    Data.msg_queqe = deque(maxlen=Data.msg_max)
+    Data.client_deque.clear()
+    Data.msg_deque.clear()
     Data.client_counter = 0
     Data.msg_called_list = []
 
@@ -382,14 +497,14 @@ def init_callnum():
     
 def update_client_ui():
     result = ''
-    for num, name in Data.client_queue:
+    for num, name in Data.client_deque:
         if name:
             result += f'{num}號來賓 by {name}\n'
         else:
             result += f'{num}號來賓\n'
-    Data.window_callnum['-CLIENT_QUEUE-'].update(result)
+    Data.window_callnum['-CLIENT_DEQUE-'].update(result)
     
-    wait_num = len(Data.client_queue)
+    wait_num = len(Data.client_deque)
     Data.window_callnum['-WAIT_TITLE-'].update(f'等待{wait_num}人')
 
 def update_msg_called_ui():
@@ -411,12 +526,12 @@ def update_msg_called_ui():
 
 
 def add_client(name=None):
-    if len(Data.client_queue) >= Data.client_max:
+    if len(Data.client_deque) >= Data.client_max:
         print(f'超過等待人數上限{Data.client_max}人')
         return           
     
     Data.client_counter += 1
-    Data.client_queue.append((Data.client_counter, name))
+    Data.client_deque.append((Data.client_counter, name))
     播放聲音(Data.叫號聲)
 
 def handle_msg_and_client():
@@ -424,7 +539,7 @@ def handle_msg_and_client():
     read_serial_and_parse()
     
     
-    # update client queue
+    # update client deque
     update_client_ui()
     
     #check voice
@@ -434,22 +549,22 @@ def handle_msg_and_client():
         else:
             Data.window_callnum['-MSG0-'].update(background_color=Data.theme_background_color)
             Data.tts_start = False
-    #check queue
-    if len(Data.msg_queqe) == 0:
+    #check deque
+    if len(Data.msg_deque) == 0:
         return
     else:
         # got msg
         #print('len: ',len(Data.msg_queqe))
-        apikey, code,  value = Data.msg_queqe.popleft()
+        apikey, code,  value = Data.msg_deque.popleft()
         
         if code == Data.callnum_code :     
-            if len(Data.client_queue) == 0:
+            if len(Data.client_deque) == 0:
                 print('沒有客人')
                 return
             else:
                 # got client
-                guest_num, _ = Data.client_queue.popleft()
-                name = Data.apikey_dict[apikey]
+                guest_num, _ = Data.client_deque.popleft()
+                name = Data.name_dict[apikey]
                 name_txt = f' by {name}'
                 sound_txt = f'來賓{guest_num}號請至{value}號櫃台' 
             
@@ -462,46 +577,46 @@ def handle_msg_and_client():
                 播放聲音(Data.叫號聲2)
                 語音合成(sound_txt, 等待=False)
         elif code == Data.client_code :
-            name = Data.apikey_dict[apikey]
+            name = Data.name_dict[apikey]
             add_client(name)
 
 def read_serial_and_parse():
-    位元組資料 = Data.序列連線.接收(位元組=6)
-    if 位元組資料:
-        apikey, code, value = 結構.unpack('hhh',位元組資料)
-        apikey = str(apikey)
-        #print(清單)
-        # check msg
-        if not apikey  in Data.apikey_dict.keys():
-            print('apikey錯誤: ', apikey)
-            return
-        
-        # only one apikey in msg_queue (prevent busy)
-        name = Data.apikey_dict[apikey]
-        for k, _, _ in Data.msg_queqe:
-            
-            if k == apikey :
-                
-                print(f'1次只能1個訊息(apikey:{apikey}, {name})')
+    # try read max 10 times
+    for try_num in range(10):
+        位元組資料 = Data.序列連線.接收(位元組=6)
+        if not 位元組資料:
+            # no data
+            print(f'serial read break({try_num})')
+            break
+        else:
+            apikey, code, value = 結構.unpack('hhh',位元組資料)
+            apikey = str(apikey)
+            #print(清單)
+            # check msg
+            if not apikey  in Data.name_dict.keys():
+                print('apikey錯誤: ', apikey)
                 return
-        
-        
-        if code not in (Data.client_code, Data.callnum_code):
-            print('指令碼錯誤: ', code, f'(apikey:{apikey}, {name} )')
-            return
             
-        if code == Data.callnum_code and not 1 <= value <= Data.counter_max :
-            print('叫號櫃台({}) 超過範圍1~{}  (apikey:{}, {})'.format(value,Data.counter_max, apikey, name))
-            return
-        
-         
-        
-        # put in queue
-        Data.msg_queqe.append((apikey, code, value))
-        print('serial msg ok')
-
-
-    
+            # only one apikey in msg_deque (prevent busy)
+            name = Data.name_dict[apikey]
+            for k, _, _ in Data.msg_deque:
+                
+                if k == apikey :
+                    
+                    print(f'1次超過1個以上訊息，多的忽略(apikey:{apikey}, {name})')
+                    return
+                    
+            if code not in (Data.client_code, Data.callnum_code):
+                print('指令碼錯誤: ', code, f'(apikey:{apikey}, {name} )')
+                return
+                
+            if code == Data.callnum_code and not 1 <= value <= Data.counter_max :
+                print('叫號櫃台({}) 超過範圍1~{}  (apikey:{}, {})'.format(value,Data.counter_max, apikey, name))
+                return
+                    
+            # put in deque
+            Data.msg_deque.append((apikey, code, value))
+            #print('serial msg ok')   
 
 # ---------------事件主迴圈-------------------
 
@@ -516,7 +631,7 @@ def event_loop():
             break
 
         if event == '-START_CALLNUM-' and not Data.window_callnum:
-            if len(Data.apikey_dict) == 0 :
+            if len(Data.name_dict) == 0 :
                 sg.popup_error('需先產生apikey')
             
             else:
@@ -525,7 +640,7 @@ def event_loop():
                 init_callnum()
                 
         if event == '-START_FEEDBACK-' and not Data.window_feedback:
-            if len(Data.apikey_dict) == 0 :
+            if len(Data.name_dict) == 0 :
                 sg.popup_error('需先產生apikey')
             
             else:
@@ -545,6 +660,25 @@ def event_loop():
             Data.window_feedback = None
             #Data.序列連線.關閉()
             Data.window_main.un_hide()
+            
+        if window == Data.window_feedback and event == '-LOCK_ANSWER-':
+            lock_answer()
+            
+            
+        if window == Data.window_feedback and event == '-CLEAR_ALL-':
+            clear_all()
+              
+        if window == Data.window_feedback and event == '-CHECK_ANSWER-':      
+            check_answer(values)
+              
+        if window == Data.window_feedback and event == 'TEST':
+            for i in range(3):
+                k = choice(list(Data.name_dict.keys()))
+                Data.msg_deque.append((k, randint(0, 6)))
+            
+        if Data.window_feedback and event == '__TIMEOUT__':
+            handle_msg_and_answer()
+        
         
         # 取號叫號 事件----------
         
@@ -558,15 +692,15 @@ def event_loop():
             Data.window_main.un_hide()
             
         if window == Data.window_callnum and event == '取號':
-            key = choice(list(Data.apikey_dict.keys()))
-            Data.msg_queqe.append((key, Data.client_code, 0))
+            key = choice(list(Data.name_dict.keys()))
+            Data.msg_deque.append((key, Data.client_code, 0))
         if window == Data.window_callnum and event == '叫號':
-            key = choice(list(Data.apikey_dict.keys()))
+            key = choice(list(Data.name_dict.keys()))
             
             num = randint(1,20)
-            Data.msg_queqe.append((key, Data.callnum_code, num))
+            Data.msg_deque.append((key, Data.callnum_code, num))
         if window == Data.window_callnum and event == '清除等待':
-            Data.client_queue.clear()
+            Data.client_deque.clear()
             
         
 
