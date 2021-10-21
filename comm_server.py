@@ -1,5 +1,6 @@
 from collections import OrderedDict, Counter, deque
 from random import randint, seed, choice
+from time import sleep
 
 import json
 
@@ -25,6 +26,7 @@ def init():
     Data.highlight_color = 'red'
     Data.highlight_color2 = 'green'
     Data.readonly_color = 'PaleGreen1'
+    Data.seed_num = 0
     
     Data.window_main = make_window_main()
     Data.window_callnum = None
@@ -119,7 +121,10 @@ def make_window_main():
     tab_setup_layout = [
             [sg.Text('設定名單與apikey')],
             [sg.Text('-'*20)],
-            [sg.Text('請在左方輸入名單(1行1個)\n產生apikey限制在32筆內\napikey產生有固定亂數順序')],
+            [sg.Text('請在左方輸入名單(1行1個，限32筆)\napikey產生依隨機種子，種子建議用班級數字代入')],
+            [sg.Text('')],
+            [sg.Text('隨機種子'),
+               sg.Combo([i for i in range(1,33)],key='-RAMDOM_SEED-',default_value=1, readonly=True)],
             [sg.Multiline('',key='-INPUT_NAMES-', size=(10, 15)),
                sg.Button('====>\n產生apikey\n(取代原有)', key='-MAKE_APIKEY-' ,size=(10,4)),
              sg.Multiline('',key='-APIKEY_RESULT-', size=(26, 15), disabled=True, background_color=Data.readonly_color),
@@ -353,7 +358,9 @@ def make_apikey(values):
         Data.name_dict = OrderedDict()
         over_32 = False
         # 固定隨機種子
-        seed(1)
+        #print(values['-RAMDOM_SEED-'], type(values['-RAMDOM_SEED-']))
+        Data.seed_num = values['-RAMDOM_SEED-']
+        seed(Data.seed_num)
         name_list = names_str.split('\n')
         for i, n in enumerate(name_list):
             # 限32筆
@@ -381,21 +388,38 @@ def make_apikey(values):
             sg.popup_ok('名單超過32筆，超過部份不使用')
         
 def show_apikey():
-    result = '序    名稱    apikey\n ===============\n'
+    result = f'【列印發放用】(隨機種子:{Data.seed_num})\n'
+    result += '序    名稱    apikey\n'
+    result += ' ===============\n'
+    
     for i, (key, name) in enumerate(Data.name_dict.items()):
-        result += f'{i+1})  {name}  (apikey:{key})\n'
+        result += f'{i+1:2})  {name}  (apikey:{key})\n'
+    
+    result += f'\n【原始名單】(隨機種子:{Data.seed_num})\n'
+    
+    for key, name in Data.name_dict.items():
+        result += f'{name}\n'
+        
     Data.window_main['-APIKEY_RESULT-'].update(result)
     Data.window_main['-INPUT_NAMES-'].update('')
 
 def save_data():
+    # need to save:
+    #     [Data.seed_num, Data.name_dict ]
+    data_list = [Data.seed_num, Data.name_dict]
+
     with open(Data.filename, 'w', encoding='utf-8') as f:
-                json.dump(Data.name_dict, f)
+                json.dump(data_list, f)
     print('資料存檔')
 
 def load_data():
+    # need to load:
+    #     [Data.seed_num, Data.name_dict ]
+    
     try:
         with open(Data.filename, 'r', encoding='utf-8') as f:
-                Data.name_dict = json.load(f)
+                Data.seed_num, Data.name_dict = json.load(f)
+                
         print('資料載入')
         show_apikey()
     except FileNotFoundError:
@@ -417,6 +441,11 @@ def init_feedback():
 
     Data.window_feedback['-LOCK_ANSWER_TXT-'].update(Data.fill_answer_content,background_color=Data.highlight_color2)
     Data.window_feedback['-CHECK_ANSWER_TXT-'].update('',background_color=Data.theme_background_color)
+
+    # microbit connect
+    Data.序列連線 = 連接microbit(例外錯誤=False, 讀取等待=0)
+    sleep(0.3)
+    Data.序列連線.傳送(b'hh')
 
 def lock_answer():
     Data.answer_locking = True
@@ -448,6 +477,8 @@ def clear_all():
     for k in Data.name_dict.keys():
         Data.window_feedback[k].update('', background_color=Data.theme_background_color)
 
+    播放聲音(Data.叫號聲2)
+
 def check_answer(values):
     #print(values['-ANSWER_COMBO-'])
     Data.window_feedback['-CHECK_ANSWER-'].update(disabled=True)
@@ -465,9 +496,41 @@ def check_answer(values):
     播放聲音(Data.正解聲)
 
 def view_score():
-    print(Data.score_counter)
+    #print(Data.score_counter)
 
-
+    
+    
+    temp_score_list = []
+    for apikey in Data.name_dict.keys():
+        item = (apikey, Data.score_counter[apikey])
+        temp_score_list.append(item)
+    
+    # sort by score
+    temp_score_list = sorted(temp_score_list, key=lambda s: s[1], reverse=True)
+    
+    #print(temp_score_list)
+    
+    result = '序  名單  答對數\n =============\n'
+    for i, (key , score) in  enumerate(temp_score_list):
+        name = Data.name_dict[key]
+        result += f'{i+1:2})  {name}   {score}\n'
+    
+    score_layout = [
+            [sg.T('答對數與排名')],
+            [sg.Multiline(result,key='-SCORE-', size=(20, 15),
+                          disabled=True,
+                          font=Data.font_small,
+                          background_color=Data.readonly_color)],
+            
+        ]
+    
+    window_score = sg.Window('目前成績', score_layout,
+                             finalize=True,
+                             modal=True
+                             )
+    window_score.read(close=True)
+    
+    
 
 def handle_msg_and_answer():
     msg_num = len(Data.msg_deque)
@@ -489,7 +552,44 @@ def handle_msg_and_answer():
                 else:
                     Data.window_feedback[apikey].update(f'{name}')
             播放聲音(Data.叫號聲)
-        
+
+def feedback_read_serial_and_parse():
+    # try read max 10 times
+    for try_num in range(10):
+        位元組資料 = Data.序列連線.接收(位元組=6)
+        if not 位元組資料:
+            # no data
+            #print(f'serial read break({try_num})')
+            break
+        else:
+            apikey, code, value = 結構.unpack('hhh',位元組資料)
+            apikey = str(apikey)
+            #print(清單)
+            # check msg
+            if not apikey  in Data.name_dict.keys():
+                print('apikey錯誤: ', apikey)
+                return
+            
+            # only one apikey in msg_deque (prevent busy)
+            name = Data.name_dict[apikey]
+            for k, _, _ in Data.msg_deque:
+                
+                if k == apikey :
+                    
+                    print(f'1次超過1個以上訊息，多的忽略(apikey:{apikey}, {name})')
+                    return
+                    
+            if code not in (Data.client_code, Data.callnum_code):
+                print('指令碼錯誤: ', code, f'(apikey:{apikey}, {name} )')
+                return
+                
+            if code == Data.callnum_code and not 1 <= value <= Data.counter_max :
+                print('叫號櫃台({}) 超過範圍1~{}  (apikey:{}, {})'.format(value,Data.counter_max, apikey, name))
+                return
+                    
+            # put in deque
+            Data.msg_deque.append((apikey, code, value))
+            #print('serial msg ok')
 
 
 # ---------------取號叫號 相關函式-------------------
@@ -509,6 +609,8 @@ def init_callnum():
     
     # microbit connect
     Data.序列連線 = 連接microbit(例外錯誤=False, 讀取等待=0)
+    sleep(0.3)
+    Data.序列連線.傳送(b'hhh')
     
 def update_client_ui():
     result = ''
@@ -551,7 +653,7 @@ def add_client(name=None):
 
 def handle_msg_and_client():
     #read serial
-    read_serial_and_parse()
+    callnum_read_serial_and_parse()
     
     
     # update client deque
@@ -595,13 +697,13 @@ def handle_msg_and_client():
             name = Data.name_dict[apikey]
             add_client(name)
 
-def read_serial_and_parse():
+def callnum_read_serial_and_parse():
     # try read max 10 times
     for try_num in range(10):
         位元組資料 = Data.序列連線.接收(位元組=6)
         if not 位元組資料:
             # no data
-            print(f'serial read break({try_num})')
+            #print(f'serial read break({try_num})')
             break
         else:
             apikey, code, value = 結構.unpack('hhh',位元組資料)
