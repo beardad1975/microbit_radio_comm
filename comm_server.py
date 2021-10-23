@@ -1,7 +1,6 @@
 from collections import OrderedDict, Counter, deque
 from random import randint, seed, choice
 from time import sleep
-
 import json
 
 import PySimpleGUI as sg
@@ -533,6 +532,9 @@ def view_score():
     
 
 def handle_msg_and_answer():
+    
+    feedback_read_serial_and_parse()
+    
     msg_num = len(Data.msg_deque)
     if msg_num == 0:
         return
@@ -556,39 +558,37 @@ def handle_msg_and_answer():
 def feedback_read_serial_and_parse():
     # try read max 10 times
     for try_num in range(10):
-        位元組資料 = Data.序列連線.接收(位元組=6)
+        位元組資料 = Data.序列連線.接收(位元組=4)
         if not 位元組資料:
             # no data
             #print(f'serial read break({try_num})')
             break
         else:
-            apikey, code, value = 結構.unpack('hhh',位元組資料)
+            apikey, value = 結構.unpack('hh',位元組資料)
             apikey = str(apikey)
             #print(清單)
             # check msg
             if not apikey  in Data.name_dict.keys():
-                print('apikey錯誤: ', apikey)
+                print('<<即時回饋>> apikey錯誤: ', apikey)
                 return
             
             # only one apikey in msg_deque (prevent busy)
             name = Data.name_dict[apikey]
-            for k, _, _ in Data.msg_deque:
+            for k, _ in Data.msg_deque:
                 
                 if k == apikey :
                     
-                    print(f'1次超過1個以上訊息，多的忽略(apikey:{apikey}, {name})')
+                    print(f'<<即時回饋>> 1次超過1個以上訊息，多的忽略(apikey:{apikey}, {name})')
                     return
                     
-            if code not in (Data.client_code, Data.callnum_code):
-                print('指令碼錯誤: ', code, f'(apikey:{apikey}, {name} )')
+            if not 0 <= value <= 6 :
+                print('<<即時回饋>> 數值超出範圍(0~6): ', value, f'apikey:{apikey}, {value} ')
                 return
                 
-            if code == Data.callnum_code and not 1 <= value <= Data.counter_max :
-                print('叫號櫃台({}) 超過範圍1~{}  (apikey:{}, {})'.format(value,Data.counter_max, apikey, name))
-                return
+            
                     
             # put in deque
-            Data.msg_deque.append((apikey, code, value))
+            Data.msg_deque.append((apikey, value))
             #print('serial msg ok')
 
 
@@ -644,7 +644,7 @@ def update_msg_called_ui():
 
 def add_client(name=None):
     if len(Data.client_deque) >= Data.client_max:
-        print(f'超過等待人數上限{Data.client_max}人')
+        print(f'<<取號叫號>> 超過等待人數上限{Data.client_max}人')
         return           
     
     Data.client_counter += 1
@@ -676,7 +676,7 @@ def handle_msg_and_client():
         
         if code == Data.callnum_code :     
             if len(Data.client_deque) == 0:
-                print('沒有客人')
+                print('<<取號叫號>> 目前沒有來賓排隊')
                 return
             else:
                 # got client
@@ -711,7 +711,7 @@ def callnum_read_serial_and_parse():
             #print(清單)
             # check msg
             if not apikey  in Data.name_dict.keys():
-                print('apikey錯誤: ', apikey)
+                print('<<取號叫號>> apikey錯誤: ', apikey)
                 return
             
             # only one apikey in msg_deque (prevent busy)
@@ -720,15 +720,15 @@ def callnum_read_serial_and_parse():
                 
                 if k == apikey :
                     
-                    print(f'1次超過1個以上訊息，多的忽略(apikey:{apikey}, {name})')
+                    print(f'<<取號叫號>> 1次超過1個以上訊息，多的忽略(apikey:{apikey}, {name})')
                     return
                     
             if code not in (Data.client_code, Data.callnum_code):
-                print('指令碼錯誤: ', code, f'(apikey:{apikey}, {name} )')
+                print('<<取號叫號>> 指令碼錯誤: ', code, f'(apikey:{apikey}, {name} )')
                 return
                 
             if code == Data.callnum_code and not 1 <= value <= Data.counter_max :
-                print('叫號櫃台({}) 超過範圍1~{}  (apikey:{}, {})'.format(value,Data.counter_max, apikey, name))
+                print('<<取號叫號>> 叫號櫃台({}) 超過範圍1~{}  (apikey:{}, {})'.format(value,Data.counter_max, apikey, name))
                 return
                     
             # put in deque
@@ -775,7 +775,7 @@ def event_loop():
         if window == Data.window_feedback and (event == sg.WIN_CLOSED) and sg.popup_yes_no('要離開即時回饋功能嗎?') == 'Yes':
             Data.window_feedback.close()
             Data.window_feedback = None
-            #Data.序列連線.關閉()
+            Data.序列連線.關閉()
             Data.window_main.un_hide()
             
         if window == Data.window_feedback and event == '-LOCK_ANSWER-':
